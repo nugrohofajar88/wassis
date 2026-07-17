@@ -172,7 +172,7 @@ class MemoryEngine
         string $conversation,
         string $instruction = ''
     ): string {
-        $memories  = $this->recall($user, $contact);
+        $memories  = $this->resolveMemories($user, $contact);
         $styleData = $this->resolveStyleData($user, $contact);
 
         try {
@@ -193,7 +193,7 @@ class MemoryEngine
      */
     public function suggestAutoReply(User $user, Contact $contact, string $conversation): array
     {
-        $memories  = $this->recall($user, $contact);
+        $memories  = $this->resolveMemories($user, $contact);
         $styleData = $this->resolveStyleData($user, $contact);
 
         try {
@@ -223,5 +223,22 @@ class MemoryEngine
         $defaultPersona = $user->getSetting('default_persona', '');
 
         return $defaultPersona ? ['summary' => $defaultPersona] : [];
+    }
+
+    /**
+     * Resolve the memory list to prompt with: stored Memory rows plus the contact's manually
+     * written `notes` field (if any), surfaced as the first entry so the owner's own context
+     * about this person (e.g. "adik ipar, suka bercanda") shapes replies the same way an
+     * AI-extracted memory would, distinguishable by its label prefix.
+     */
+    protected function resolveMemories(User $user, Contact $contact): array
+    {
+        $memories = $this->recall($user, $contact);
+
+        if ($contact->notes) {
+            array_unshift($memories, "Catatan pemilik akun tentang kontak ini: {$contact->notes}");
+        }
+
+        return $memories;
     }
 }
