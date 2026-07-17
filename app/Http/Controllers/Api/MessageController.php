@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\AnalyzeImportedHistory;
 use App\Models\Contact;
 use App\Models\Message;
 use App\Services\Memory\MemoryEngine;
@@ -96,10 +97,14 @@ class MessageController extends Controller
 
     /**
      * Import a WhatsApp "Export Chat" (.txt, without media) file as historical messages for
-     * this contact, then re-learn the contact's style profile and memories from it — this is
-     * how the AI learns to sound like the account owner rather than a generic assistant, since
-     * the owner's own WhatsApp replies never otherwise reach this app (Fonnte's webhook only
-     * forwards inbound messages, not what the owner types from their own phone).
+     * this contact. Saving the messages happens inline (fast, even for thousands of rows via
+     * chunked insert); re-learning the contact's style profile and memories from that history
+     * is dispatched to a queued job instead of running inline — two sequential AI calls in the
+     * same request risk exceeding the host's request timeout for a large import, returning no
+     * response at all. This whole feature exists because the owner's own WhatsApp replies never
+     * otherwise reach this app (Fonnte's webhook only forwards inbound messages, not what the
+     * owner types from their own phone) — without it, the AI only ever learns from its own
+     * previously auto-generated replies.
      */
     public function import(Request $request, Contact $contact): JsonResponse
     {
@@ -145,27 +150,14 @@ class MessageController extends Controller
             return response()->json(['message' => 'All rows failed to import. Check storage/logs for details.'], 422);
         }
 
-        // Re-learn from the imported history right away — most recent slice, so the profile
-        // reflects current style rather than being diluted by years-old messages, and so the
-        // AI prompt used for analysis stays a reasonable size regardless of import length.
-        $recent = $contact->messages()
-            ->orderByDesc('created_at')
-            ->limit(50)
-            ->get()
-            ->sortBy('created_at');
-
-        $conversation = $recent
-            ->map(fn (Message $m) => ($m->direction === 'in' ? $contact->name : 'Me') . ': ' . $m->content)
-            ->implode("\n");
-
-        $memories     = $this->memoryEngine->analyzeAndStore($request->user(), $contact, $conversation);
-        $styleProfile = $this->memoryEngine->buildOrUpdateStyleProfile($request->user(), $contact, $conversation);
+        // Queued, not called inline — see the method docblock. Picked up by the same
+        // cron-driven queue processing as auto-reply (AGENTS.md: "Production deployment").
+        AnalyzeImportedHistory::dispatch($request->user()->id, $contact->id);
 
         return response()->json([
             'imported_count' => $insertedCount,
             'skipped_count'  => $skippedCount,
-            'memories'       => $memories,
-            'style_profile'  => $styleProfile,
+            'analysis'       => 'queued',
         ], 201);
     }
 
