@@ -10,6 +10,7 @@ use App\Services\WhatsApp\WhatsAppExportParser;
 use App\Services\WhatsApp\WhatsAppGatewayInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class MessageController extends Controller
 {
@@ -138,7 +139,11 @@ class MessageController extends Controller
             ];
         }, $parsed);
 
-        Message::insert($rows);
+        [$insertedCount, $skippedCount] = $this->insertResiliently($rows);
+
+        if ($insertedCount === 0) {
+            return response()->json(['message' => 'All rows failed to import. Check storage/logs for details.'], 422);
+        }
 
         // Re-learn from the imported history right away — most recent slice, so the profile
         // reflects current style rather than being diluted by years-old messages, and so the
@@ -157,10 +162,49 @@ class MessageController extends Controller
         $styleProfile = $this->memoryEngine->buildOrUpdateStyleProfile($request->user(), $contact, $conversation);
 
         return response()->json([
-            'imported_count' => count($rows),
+            'imported_count' => $insertedCount,
+            'skipped_count'  => $skippedCount,
             'memories'       => $memories,
             'style_profile'  => $styleProfile,
         ], 201);
+    }
+
+    /**
+     * Bulk-insert in chunks, falling back to one-row-at-a-time within any chunk that fails —
+     * a single bad row (e.g. mangled encoding the parser's sanitizer didn't catch) shouldn't
+     * take an entire multi-thousand-message import down with it.
+     *
+     * @return array{0: int, 1: int} [insertedCount, skippedCount]
+     */
+    protected function insertResiliently(array $rows): array
+    {
+        $inserted = 0;
+        $skipped  = 0;
+
+        foreach (array_chunk($rows, 200) as $chunk) {
+            try {
+                Message::insert($chunk);
+                $inserted += count($chunk);
+                continue;
+            } catch (\Throwable $e) {
+                // Fall through to per-row insertion below.
+            }
+
+            foreach ($chunk as $row) {
+                try {
+                    Message::insert([$row]);
+                    $inserted++;
+                } catch (\Throwable $rowException) {
+                    $skipped++;
+                    Log::warning('WhatsApp import: skipped a row that failed to insert', [
+                        'error'            => $rowException->getMessage(),
+                        'content_preview'  => substr($row['content'], 0, 100),
+                    ]);
+                }
+            }
+        }
+
+        return [$inserted, $skipped];
     }
 
     /**

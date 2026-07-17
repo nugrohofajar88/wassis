@@ -51,6 +51,13 @@ class WhatsAppExportParser
                 continue;
             }
 
+            // Sanitize BEFORE regex matching, not after: the patterns use the /u (Unicode)
+            // modifier, and PCRE silently fails to match at all (not just on the bad part) when
+            // the subject contains invalid UTF-8 — real exports can contain such bytes (mangled
+            // emoji encoding, e.g. a lone 0xC2 lead byte). Sanitizing post-match never even
+            // triggers if the match itself already failed, silently dropping the whole line.
+            $line = $this->sanitize($line);
+
             $matched = false;
 
             foreach (self::PATTERNS as $pattern) {
@@ -81,6 +88,28 @@ class WhatsAppExportParser
         }
 
         return $messages;
+    }
+
+    /**
+     * Real WhatsApp exports can contain byte sequences that aren't valid UTF-8 (mangled
+     * encoding of emoji/special characters, e.g. lone 0xC2 bytes) or stray control characters.
+     * MySQL rejects invalid UTF-8 outright (error 1366), which — without this — takes down the
+     * entire bulk insert for the whole file over a single bad character in one message.
+     */
+    protected function sanitize(string $text): string
+    {
+        // iconv with //IGNORE reliably drops byte sequences that aren't valid UTF-8 — more
+        // dependable across environments than mb_convert_encoding, whose invalid-sequence
+        // handling varies with the mbstring.substitute_character ini setting.
+        $clean = @iconv('UTF-8', 'UTF-8//IGNORE', $text);
+        if ($clean === false || $clean === null) {
+            $clean = mb_convert_encoding($text, 'UTF-8', 'UTF-8');
+        }
+
+        // Strip C0/C1 control characters except tab/newline. No /u modifier here on purpose —
+        // these are single-byte ASCII codepoints, and requiring valid UTF-8 to run this would
+        // just reintroduce the exact failure mode this method exists to avoid.
+        return preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $clean);
     }
 
     protected function isSkippable(string $content): bool
