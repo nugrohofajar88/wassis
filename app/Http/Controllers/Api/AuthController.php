@@ -92,6 +92,37 @@ class AuthController extends Controller
     }
 
     /**
+     * Change the authenticated user's password (requires the current password).
+     */
+    public function changePassword(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'current_password' => 'required|string',
+            'new_password'     => 'required|string|min:8|confirmed',
+        ]);
+
+        $user = $request->user();
+
+        if (! Hash::check($validated['current_password'], $user->password)) {
+            throw ValidationException::withMessages([
+                'current_password' => ['Password saat ini salah.'],
+            ]);
+        }
+
+        $user->update([
+            'password' => Hash::make($validated['new_password']),
+        ]);
+
+        // Revoke every other token so a stolen/old session can't keep using the old password's
+        // trust — only the token used for this request survives.
+        $user->tokens()->where('id', '!=', $request->user()->currentAccessToken()->id)->delete();
+
+        return response()->json([
+            'message' => 'Password berhasil diubah.',
+        ]);
+    }
+
+    /**
      * Update FCM token for push notifications.
      */
     public function updateFcmToken(Request $request): JsonResponse
