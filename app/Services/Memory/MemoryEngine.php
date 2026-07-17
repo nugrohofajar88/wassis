@@ -172,12 +172,8 @@ class MemoryEngine
         string $conversation,
         string $instruction = ''
     ): string {
-        $memories     = $this->recall($user, $contact);
-        $styleProfile = StyleProfile::where('user_id', $user->id)
-            ->where('contact_id', $contact->id)
-            ->first();
-
-        $styleData = $styleProfile ? $styleProfile->toArray() : [];
+        $memories  = $this->recall($user, $contact);
+        $styleData = $this->resolveStyleData($user, $contact);
 
         try {
             return $this->ai->generateReply($conversation, $styleData, $memories, $instruction);
@@ -197,12 +193,8 @@ class MemoryEngine
      */
     public function suggestAutoReply(User $user, Contact $contact, string $conversation): array
     {
-        $memories     = $this->recall($user, $contact);
-        $styleProfile = StyleProfile::where('user_id', $user->id)
-            ->where('contact_id', $contact->id)
-            ->first();
-
-        $styleData = $styleProfile ? $styleProfile->toArray() : [];
+        $memories  = $this->recall($user, $contact);
+        $styleData = $this->resolveStyleData($user, $contact);
 
         try {
             return $this->ai->generateAutoReply($conversation, $styleData, $memories);
@@ -210,5 +202,26 @@ class MemoryEngine
             Log::error('MemoryEngine: Auto-reply decision failed', ['error' => $e->getMessage()]);
             return ['needs_reply' => false, 'reply' => ''];
         }
+    }
+
+    /**
+     * Resolve the style data to prompt with: the contact's own analyzed StyleProfile if one
+     * exists, otherwise the user's global `default_persona` setting as a coarse fallback so a
+     * brand-new contact (no conversation history yet) doesn't get a completely generic reply
+     * while their own style profile hasn't been learned yet.
+     */
+    protected function resolveStyleData(User $user, Contact $contact): array
+    {
+        $styleProfile = StyleProfile::where('user_id', $user->id)
+            ->where('contact_id', $contact->id)
+            ->first();
+
+        if ($styleProfile) {
+            return $styleProfile->toArray();
+        }
+
+        $defaultPersona = $user->getSetting('default_persona', '');
+
+        return $defaultPersona ? ['summary' => $defaultPersona] : [];
     }
 }

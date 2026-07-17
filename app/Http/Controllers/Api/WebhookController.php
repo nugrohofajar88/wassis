@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\AnalyzeContactHistory;
 use App\Jobs\ProcessAutoReply;
 use App\Models\Contact;
 use App\Models\Message;
@@ -77,6 +78,22 @@ class WebhookController extends Controller
             // ProcessAutoReply and AGENTS.md.
             ProcessAutoReply::dispatch($contact->id, $message->id, $message->created_at->toDateTimeString())
                 ->delay(now()->addSeconds((int) config('whatsapp.auto_reply_debounce_seconds', 12)));
+        }
+
+        // Independent of ai_enabled — keep the style profile improving from any conversation
+        // (including the owner's own replies sent via the app), not just auto-reply traffic.
+        $reanalyzeInterval = (int) config('whatsapp.auto_reanalyze_message_interval', 15);
+
+        if ($reanalyzeInterval > 0) {
+            $sinceLastAnalysis = optional($contact->styleProfile)->last_analyzed_at ?? $contact->created_at;
+
+            $messagesSinceAnalysis = Message::where('contact_id', $contact->id)
+                ->where('created_at', '>', $sinceLastAnalysis)
+                ->count();
+
+            if ($messagesSinceAnalysis >= $reanalyzeInterval) {
+                AnalyzeContactHistory::dispatch($user->id, $contact->id);
+            }
         }
 
         return response()->json(['status' => true, 'message_id' => $message->id]);

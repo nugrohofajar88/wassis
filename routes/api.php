@@ -44,6 +44,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/messages/import',      [MessageController::class, 'import']);
         Route::post('/suggest-reply',        [MessageController::class, 'suggestReply']);
         Route::post('/memories/analyze',     [MemoryController::class, 'analyze']);
+        Route::get('/style-profile',         [MemoryController::class, 'styleProfile']);
     });
 
     // Memories

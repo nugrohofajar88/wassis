@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\Memory;
 use App\Models\Message;
+use App\Models\StyleProfile;
 use App\Services\Memory\MemoryEngine;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -114,5 +115,20 @@ class MemoryController extends Controller
             'memories'      => $stored,
             'style_profile' => $styleProfile,
         ]);
+    }
+
+    /**
+     * Read the contact's current style profile without triggering a new AI analysis.
+     * Returns null if no analysis has ever been run for this contact.
+     */
+    public function styleProfile(Request $request, Contact $contact): JsonResponse
+    {
+        abort_unless($contact->user_id === $request->user()->id, 404);
+
+        $profile = StyleProfile::where('contact_id', $contact->id)
+            ->where('user_id', $request->user()->id)
+            ->first();
+
+        return response()->json(['style_profile' => $profile]);
     }
 }

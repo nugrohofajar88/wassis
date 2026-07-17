@@ -29,4 +29,11 @@ return [
     // day. Deliberately generous so it never interferes with a real, long conversation — it
     // only bounds worst-case cost/spam if the AI's needs_reply judgment keeps misfiring.
     'auto_reply_daily_limit' => env('AUTO_REPLY_DAILY_LIMIT', 25),
+
+    // Re-run style/memory analysis (App\Jobs\AnalyzeContactHistory) automatically once a contact
+    // has accumulated this many new messages since the last analysis, so the style profile keeps
+    // improving without the owner remembering to tap "Analisa Ulang". Independent of ai_enabled —
+    // style learning happens from any conversation (owner's own replies included), not just
+    // auto-reply traffic. Set to 0 to disable.
+    'auto_reanalyze_message_interval' => env('AUTO_REANALYZE_MESSAGE_INTERVAL', 15),
 ];

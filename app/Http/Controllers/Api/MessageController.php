@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\AnalyzeImportedHistory;
+use App\Jobs\AnalyzeContactHistory;
 use App\Models\Contact;
 use App\Models\Message;
 use App\Services\Memory\MemoryEngine;
@@ -152,7 +152,7 @@ class MessageController extends Controller
 
         // Queued, not called inline — see the method docblock. Picked up by the same
         // cron-driven queue processing as auto-reply (AGENTS.md: "Production deployment").
-        AnalyzeImportedHistory::dispatch($request->user()->id, $contact->id);
+        AnalyzeContactHistory::dispatch($request->user()->id, $contact->id);
 
         return response()->json([
             'imported_count' => $insertedCount,
