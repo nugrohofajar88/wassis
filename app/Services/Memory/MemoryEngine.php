@@ -187,20 +187,22 @@ class MemoryEngine
      * Decide whether an unattended auto-reply is warranted for the given conversation, and
      * generate it if so. Unlike suggestReply(), this also judges whether the conversation has
      * reached a natural stopping point, so a bot doesn't keep replying once the other person
-     * is done.
+     * is done — and whether it touches a topic the owner marked off-limits for unattended
+     * replies (see `sensitive_topics_guard` Setting), in which case it stays silent.
      *
-     * @return array{needs_reply: bool, reply: string}
+     * @return array{needs_reply: bool, reply: string, withhold_for_owner: bool}
      */
     public function suggestAutoReply(User $user, Contact $contact, string $conversation): array
     {
         $memories  = $this->resolveMemories($user, $contact);
         $styleData = $this->resolveStyleData($user, $contact);
+        $guard     = $user->getSetting('sensitive_topics_guard', '');
 
         try {
-            return $this->ai->generateAutoReply($conversation, $styleData, $memories);
+            return $this->ai->generateAutoReply($conversation, $styleData, $memories, $guard);
         } catch (\Exception $e) {
             Log::error('MemoryEngine: Auto-reply decision failed', ['error' => $e->getMessage()]);
-            return ['needs_reply' => false, 'reply' => ''];
+            return ['needs_reply' => false, 'reply' => '', 'withhold_for_owner' => false];
         }
     }
 

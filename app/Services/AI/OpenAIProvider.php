@@ -72,10 +72,11 @@ class OpenAIProvider implements AIProviderInterface
     public function generateAutoReply(
         string $conversation,
         array $styleProfile = [],
-        array $memories = []
+        array $memories = [],
+        string $guardInstructions = ''
     ): array {
         $response = $this->chat(
-            ReplyGenerationPrompt::systemForAutoReply($styleProfile, $memories),
+            ReplyGenerationPrompt::systemForAutoReply($styleProfile, $memories, $guardInstructions),
             ReplyGenerationPrompt::user($conversation),
             jsonMode: true
         );
@@ -84,12 +85,13 @@ class OpenAIProvider implements AIProviderInterface
 
         if (! is_array($decoded) || ! array_key_exists('needs_reply', $decoded)) {
             Log::warning('OpenAI: Failed to parse auto-reply decision response', ['raw' => $response]);
-            return ['needs_reply' => false, 'reply' => ''];
+            return ['needs_reply' => false, 'reply' => '', 'withhold_for_owner' => false];
         }
 
         return [
-            'needs_reply' => (bool) $decoded['needs_reply'],
-            'reply'       => (string) ($decoded['reply'] ?? ''),
+            'needs_reply'        => (bool) $decoded['needs_reply'],
+            'reply'              => (string) ($decoded['reply'] ?? ''),
+            'withhold_for_owner' => (bool) ($decoded['withhold_for_owner'] ?? false),
         ];
     }
 

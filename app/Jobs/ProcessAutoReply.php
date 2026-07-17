@@ -78,6 +78,13 @@ class ProcessAutoReply implements ShouldQueue
 
         $decision = $memoryEngine->suggestAutoReply($user, $contact, $conversation);
 
+        if ($decision['withhold_for_owner'] ?? false) {
+            Log::info('ProcessAutoReply: withheld a reply for owner review (sensitive topic)', [
+                'contact_id' => $contact->id,
+            ]);
+            return;
+        }
+
         if (! $decision['needs_reply'] || ! $decision['reply']) {
             return;
         }

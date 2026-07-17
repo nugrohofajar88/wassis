@@ -40,15 +40,18 @@ interface AIProviderInterface
     /**
      * Decide whether an unattended auto-reply is warranted, and generate it if so, in one call.
      *
-     * @param string $conversation  Recent conversation context
-     * @param array  $styleProfile  Communication style profile
-     * @param array  $memories      Relevant memories for context
-     * @return array{needs_reply: bool, reply: string}
+     * @param string $conversation       Recent conversation context
+     * @param array  $styleProfile       Communication style profile
+     * @param array  $memories           Relevant memories for context
+     * @param string $guardInstructions  Free-text description of topics that must never be
+     *                                   auto-replied to unattended (e.g. money/approval requests)
+     * @return array{needs_reply: bool, reply: string, withhold_for_owner: bool}
      */
     public function generateAutoReply(
         string $conversation,
         array $styleProfile = [],
-        array $memories = []
+        array $memories = [],
+        string $guardInstructions = ''
     ): array;
 
     /**
