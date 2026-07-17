@@ -56,9 +56,11 @@ class WebhookController extends Controller
             return response()->json(['status' => true]);
         }
 
+        // Opt-in model: new contacts start with auto-reply OFF. The owner reviews and enables
+        // it per contact via PUT /api/contacts/{id} — see AGENTS.md.
         $contact = Contact::firstOrCreate(
             ['user_id' => $user->id, 'phone' => $sender],
-            ['name' => $request->input('name') ?: $sender, 'ai_enabled' => true]
+            ['name' => $request->input('name') ?: $sender, 'ai_enabled' => false]
         );
 
         $message = $contact->messages()->create([
