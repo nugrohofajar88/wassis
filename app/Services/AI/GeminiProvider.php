@@ -25,7 +25,8 @@ class GeminiProvider implements AIProviderInterface
     {
         $response = $this->chat(
             MemoryExtractionPrompt::system($context),
-            MemoryExtractionPrompt::user($conversation)
+            MemoryExtractionPrompt::user($conversation),
+            jsonMode: true
         );
 
         // Strip possible markdown code fences
@@ -44,7 +45,8 @@ class GeminiProvider implements AIProviderInterface
     {
         $response = $this->chat(
             StyleAnalysisPrompt::system(),
-            StyleAnalysisPrompt::user($conversation)
+            StyleAnalysisPrompt::user($conversation),
+            jsonMode: true
         );
 
         $clean   = preg_replace('/^```(?:json)?\s*|\s*```$/s', '', trim($response));
@@ -77,7 +79,8 @@ class GeminiProvider implements AIProviderInterface
     ): array {
         $response = $this->chat(
             ReplyGenerationPrompt::systemForAutoReply($styleProfile, $memories),
-            ReplyGenerationPrompt::user($conversation)
+            ReplyGenerationPrompt::user($conversation),
+            jsonMode: true
         );
 
         $clean   = preg_replace('/^```(?:json)?\s*|\s*```$/s', '', trim($response));
@@ -94,10 +97,19 @@ class GeminiProvider implements AIProviderInterface
         ];
     }
 
-    public function chat(string $systemPrompt, string $userMessage): string
+    public function chat(string $systemPrompt, string $userMessage, bool $jsonMode = false): string
     {
         try {
             $url = "{$this->endpoint}/models/{$this->model}:generateContent?key={$this->apiKey}";
+
+            $generationConfig = ['temperature' => 0.7];
+
+            // Forces the model to only emit valid JSON, rather than just asking nicely in the
+            // prompt — some models (e.g. gemini-2.5-flash-lite) don't reliably follow a plain
+            // "return only JSON" instruction and can respond conversationally instead.
+            if ($jsonMode) {
+                $generationConfig['responseMimeType'] = 'application/json';
+            }
 
             $response = Http::post($url, [
                 'system_instruction' => [
@@ -106,9 +118,7 @@ class GeminiProvider implements AIProviderInterface
                 'contents' => [
                     ['role' => 'user', 'parts' => [['text' => $userMessage]]],
                 ],
-                'generationConfig' => [
-                    'temperature' => 0.7,
-                ],
+                'generationConfig' => $generationConfig,
             ]);
 
             if ($response->failed()) {

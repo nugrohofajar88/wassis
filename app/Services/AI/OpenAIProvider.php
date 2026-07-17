@@ -25,7 +25,8 @@ class OpenAIProvider implements AIProviderInterface
     {
         $response = $this->chat(
             MemoryExtractionPrompt::system($context),
-            MemoryExtractionPrompt::user($conversation)
+            MemoryExtractionPrompt::user($conversation),
+            jsonMode: true
         );
 
         $decoded = json_decode($response, true);
@@ -42,7 +43,8 @@ class OpenAIProvider implements AIProviderInterface
     {
         $response = $this->chat(
             StyleAnalysisPrompt::system(),
-            StyleAnalysisPrompt::user($conversation)
+            StyleAnalysisPrompt::user($conversation),
+            jsonMode: true
         );
 
         $decoded = json_decode($response, true);
@@ -74,7 +76,8 @@ class OpenAIProvider implements AIProviderInterface
     ): array {
         $response = $this->chat(
             ReplyGenerationPrompt::systemForAutoReply($styleProfile, $memories),
-            ReplyGenerationPrompt::user($conversation)
+            ReplyGenerationPrompt::user($conversation),
+            jsonMode: true
         );
 
         $decoded = json_decode($response, true);
@@ -90,20 +93,28 @@ class OpenAIProvider implements AIProviderInterface
         ];
     }
 
-    public function chat(string $systemPrompt, string $userMessage): string
+    public function chat(string $systemPrompt, string $userMessage, bool $jsonMode = false): string
     {
         try {
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->apiKey,
-                'Content-Type'  => 'application/json',
-            ])->post($this->endpoint . '/chat/completions', [
+            $payload = [
                 'model'       => $this->model,
                 'messages'    => [
                     ['role' => 'system', 'content' => $systemPrompt],
                     ['role' => 'user',   'content' => $userMessage],
                 ],
                 'temperature' => 0.7,
-            ]);
+            ];
+
+            // Forces the model to only emit valid JSON, rather than just asking nicely in the
+            // prompt — mirrors GeminiProvider's responseMimeType handling.
+            if ($jsonMode) {
+                $payload['response_format'] = ['type' => 'json_object'];
+            }
+
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Content-Type'  => 'application/json',
+            ])->post($this->endpoint . '/chat/completions', $payload);
 
             if ($response->failed()) {
                 Log::error('OpenAI API Error', ['status' => $response->status(), 'body' => $response->body()]);
