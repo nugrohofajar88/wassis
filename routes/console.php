@@ -10,6 +10,11 @@ Artisan::command('inspire', function () {
 
 // Drains the auto-reply debounce queue (App\Jobs\ProcessAutoReply). No persistent worker is
 // available on production hosting, so this runs briefly every minute via cron `schedule:run`
-// instead — see AGENTS.md ("Production deployment"). withoutOverlapping guards against two
-// instances stacking up if one run ever takes longer than expected.
-Schedule::command('queue:work --stop-when-empty')->everyMinute()->withoutOverlapping(5);
+// instead — see AGENTS.md ("Production deployment"). Uses Schedule::call() + Artisan::call()
+// (in-process), NOT Schedule::command() — the latter spawns a subprocess via Symfony Process,
+// which requires proc_open(), and that's disabled on production hosting alongside symlink()
+// and exec(). withoutOverlapping guards against two runs stacking up if one ever takes longer
+// than expected.
+Schedule::call(function () {
+    Artisan::call('queue:work', ['--stop-when-empty' => true]);
+})->name('process-auto-reply-queue')->everyMinute()->withoutOverlapping(5);
