@@ -19,6 +19,13 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('auth')->group(function () {
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login',    [AuthController::class, 'login']);
+
+    // Throttled: forgot-password triggers a real (paid) WhatsApp send, reset-password is a
+    // brute-force target for the 6-digit OTP — both are public/unauthenticated by nature.
+    Route::middleware('throttle:5,10')->group(function () {
+        Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+        Route::post('/reset-password',  [AuthController::class, 'resetPassword']);
+    });
 });
 
 // Public webhook (verified via a shared secret in the URL, not Sanctum — see AGENTS.md)

@@ -3,14 +3,21 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\PasswordResetOtp;
 use App\Models\User;
+use App\Services\WhatsApp\WhatsAppGatewayInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
+    public function __construct(
+        protected WhatsAppGatewayInterface $gateway
+    ) {}
+
     /**
      * Register a new user.
      */
@@ -67,6 +74,72 @@ class AuthController extends Controller
             'user'    => $user,
             'token'   => $token,
         ]);
+    }
+
+    /**
+     * Request a password reset OTP, delivered via WhatsApp to the account's registered number.
+     * Always returns a generic success message regardless of whether the email matched, so the
+     * endpoint doesn't leak which emails have an account.
+     */
+    public function forgotPassword(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'email' => 'required|email',
+        ]);
+
+        $generic = ['message' => 'Jika email terdaftar, kode OTP telah dikirim ke nomor WhatsApp akun tersebut.'];
+
+        $user = User::where('email', $validated['email'])->first();
+
+        if (! $user || ! $user->phone) {
+            // No phone on file means there's nowhere to deliver an OTP — fail silently to the
+            // caller (same generic message) but log it, since this is otherwise a dead end for
+            // a real user who forgot their password.
+            if ($user && ! $user->phone) {
+                Log::warning('AuthController::forgotPassword: user has no phone on file, cannot deliver OTP', ['user_id' => $user->id]);
+            }
+            return response()->json($generic);
+        }
+
+        $otp = (string) random_int(100000, 999999);
+
+        PasswordResetOtp::updateOrCreate(
+            ['email' => $user->email],
+            ['otp_hash' => Hash::make($otp), 'expires_at' => now()->addMinutes(10)]
+        );
+
+        $this->gateway->sendMessage($user->phone, "Kode reset password Wassis kamu: {$otp}\n\nBerlaku 10 menit. Jangan bagikan kode ini ke siapa pun.");
+
+        return response()->json($generic);
+    }
+
+    /**
+     * Complete a password reset using the OTP sent via WhatsApp. Revokes every active token —
+     * unlike changePassword(), there's no "current session" to preserve here, since this flow
+     * exists precisely for when the owner is logged out and locked out.
+     */
+    public function resetPassword(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'email'        => 'required|email',
+            'otp'          => 'required|string',
+            'new_password' => 'required|string|min:8|confirmed',
+        ]);
+
+        $record = PasswordResetOtp::where('email', $validated['email'])->first();
+
+        if (! $record || $record->expires_at->isPast() || ! Hash::check($validated['otp'], $record->otp_hash)) {
+            throw ValidationException::withMessages([
+                'otp' => ['Kode OTP salah atau sudah kedaluwarsa.'],
+            ]);
+        }
+
+        $user = User::where('email', $validated['email'])->firstOrFail();
+        $user->update(['password' => Hash::make($validated['new_password'])]);
+        $user->tokens()->delete();
+        $record->delete();
+
+        return response()->json(['message' => 'Password berhasil direset. Silakan login dengan password baru.']);
     }
 
     /**
