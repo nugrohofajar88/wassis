@@ -49,6 +49,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('contacts/{contact}')->group(function () {
         Route::get('/messages',              [MessageController::class, 'index']);
         Route::post('/messages',             [MessageController::class, 'store']);
+        Route::delete('/messages',           [MessageController::class, 'destroy']);
         Route::post('/messages/import',      [MessageController::class, 'import']);
         Route::post('/suggest-reply',        [MessageController::class, 'suggestReply']);
         Route::post('/memories/analyze',     [MemoryController::class, 'analyze']);

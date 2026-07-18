@@ -162,6 +162,26 @@ class MessageController extends Controller
     }
 
     /**
+     * Delete one or more messages belonging to this contact. Only deletes the app's own record
+     * of the message — WhatsApp itself has no API to un-send/delete a message on the other
+     * person's device, so this is purely local cleanup (e.g. removing test/junk messages so
+     * they stop polluting the conversation history the AI reads for context).
+     */
+    public function destroy(Request $request, Contact $contact): JsonResponse
+    {
+        $this->authorizeOwnership($request, $contact);
+
+        $validated = $request->validate([
+            'ids'   => 'required|array|min:1',
+            'ids.*' => 'integer',
+        ]);
+
+        $deleted = $contact->messages()->whereIn('id', $validated['ids'])->delete();
+
+        return response()->json(['deleted_count' => $deleted]);
+    }
+
+    /**
      * Bulk-insert in chunks, falling back to one-row-at-a-time within any chunk that fails —
      * a single bad row (e.g. mangled encoding the parser's sanitizer didn't catch) shouldn't
      * take an entire multi-thousand-message import down with it.
