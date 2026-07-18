@@ -43,6 +43,7 @@ class WhatsAppExportParser
     {
         $lines    = preg_split('/\r\n|\r|\n/', $rawText);
         $messages = [];
+        $formats  = $this->detectDateFormats($lines);
 
         foreach ($lines as $line) {
             $line = trim($line, "\xEF\xBB\xBF\x{200E}\x{200F} \t"); // strip BOM/LRM/RLM + whitespace
@@ -73,7 +74,7 @@ class WhatsAppExportParser
                     $messages[] = [
                         'sender'    => $sender,
                         'content'   => $content,
-                        'timestamp' => $this->parseTimestamp($m[1]),
+                        'timestamp' => $this->parseTimestamp($m[1], $formats),
                         'direction' => $sender === $ownerName ? 'out' : 'in',
                     ];
                     $matched = true;
@@ -123,13 +124,71 @@ class WhatsAppExportParser
         return false;
     }
 
-    protected function parseTimestamp(string $raw): ?Carbon
+    /**
+     * Scans every message-header line ONCE to determine the date order (day/month vs
+     * month/day) and clock style (12h vs 24h) used by this export, instead of guessing
+     * per-line. Per-line trial-and-error (the previous approach) is genuinely unsafe: WhatsApp
+     * doesn't zero-pad ("1/1/26"), so whenever both leading numbers happen to be ≤12, the WRONG
+     * format can silently "succeed" — PHP's createFromFormat doesn't reject an out-of-range
+     * month, it does date-overflow arithmetic instead (month 27 = +26 months from January),
+     * producing a wildly wrong but non-throwing date with no error raised. Confirmed against a
+     * real export: a month/day-order, 24-hour file (no AM/PM) — a combination the old fixed
+     * format list never covered — parsed "1/27/26" (27 Jan) as 2028-03-01. A single
+     * unambiguous line (either leading number >12) tells us the true order/clock for the WHOLE
+     * file, since one export always uses one consistent format throughout.
+     *
+     * @return string[] Candidate Carbon formats, narrowed to the detected date order/clock —
+     *                   still a short list (to also tolerate seconds being present or not) but
+     *                   no longer able to cross-contaminate between date orders.
+     */
+    protected function detectDateFormats(array $lines): array
     {
-        // WhatsApp doesn't zero-pad day/month ("1/1/26", not "01/01/26") — use 'j'/'n', not
-        // 'd'/'m', or single-digit dates fail to parse. Day/month order is also ambiguous
-        // (WhatsApp doesn't disambiguate); try the common orders and fall back to null rather
-        // than guessing wrong — callers don't depend on exact historical timestamps.
-        foreach (['j/n/y, H:i:s', 'j/n/y, H:i', 'j/n/Y, H:i:s', 'j/n/Y, H:i', 'n/j/y, h:i A', 'n/j/y, h:i:s A'] as $format) {
+        $dateOrder = 'dmy'; // Default: day/month, matches this app's primary (Indonesian) locale.
+        $is12Hour  = false;
+        $resolvedOrder = false;
+
+        foreach ($lines as $line) {
+            foreach (self::PATTERNS as $pattern) {
+                if (! preg_match($pattern, $line, $m)) {
+                    continue;
+                }
+
+                $raw = $m[1];
+
+                if (preg_match('/[AP]M/i', $raw)) {
+                    $is12Hour = true;
+                }
+
+                if (! $resolvedOrder && preg_match('#^(\d{1,2})/(\d{1,2})/#', $raw, $dm)) {
+                    if ((int) $dm[2] > 12) {
+                        $dateOrder = 'mdy';
+                        $resolvedOrder = true;
+                    } elseif ((int) $dm[1] > 12) {
+                        $dateOrder = 'dmy';
+                        $resolvedOrder = true;
+                    }
+                }
+
+                break;
+            }
+        }
+
+        $datePart = $dateOrder === 'mdy' ? 'n/j' : 'j/n';
+
+        if ($is12Hour) {
+            return ["{$datePart}/y, h:i:s A", "{$datePart}/y, h:i A"];
+        }
+
+        return ["{$datePart}/y, H:i:s", "{$datePart}/y, H:i", "{$datePart}/Y, H:i:s", "{$datePart}/Y, H:i"];
+    }
+
+    /**
+     * @param  string[]  $formats  Candidates from detectDateFormats(), already narrowed to one
+     *                             consistent date order/clock for the whole file.
+     */
+    protected function parseTimestamp(string $raw, array $formats): ?Carbon
+    {
+        foreach ($formats as $format) {
             try {
                 return Carbon::createFromFormat($format, $raw);
             } catch (\Exception) {
