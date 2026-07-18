@@ -10,15 +10,24 @@ use Illuminate\Http\Request;
 class ContactController extends Controller
 {
     /**
-     * List the authenticated user's contacts.
+     * List the authenticated user's contacts. Pass ?for_chat=1 for a "recent chats" ordering
+     * instead of the default alphabetical list: only contacts with at least one message,
+     * newest conversation first, with the last message eager-loaded for a preview.
      */
     public function index(Request $request): JsonResponse
     {
-        $contacts = $request->user()->contacts()
-            ->orderBy('name')
-            ->get();
+        $query = $request->user()->contacts();
 
-        return response()->json(['contacts' => $contacts]);
+        if ($request->boolean('for_chat')) {
+            $query->whereHas('messages')
+                ->withMax('messages', 'created_at')
+                ->with('latestMessage')
+                ->orderByDesc('messages_max_created_at');
+        } else {
+            $query->orderBy('name');
+        }
+
+        return response()->json(['contacts' => $query->get()]);
     }
 
     /**

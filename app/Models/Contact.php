@@ -35,6 +35,15 @@ class Contact extends Model
         return $this->hasMany(Message::class);
     }
 
+    public function latestMessage(): HasOne
+    {
+        // Explicit column matters: latestOfMany() with no argument orders by the primary key
+        // (id), not created_at. Since WhatsApp import backdates historical messages, a contact
+        // can have older messages with higher ids than its real most recent one, silently
+        // picking the wrong "latest" message without this. Confirmed via query log, see AGENTS.md.
+        return $this->hasOne(Message::class)->latestOfMany('created_at');
+    }
+
     public function memories(): HasMany
     {
         return $this->hasMany(Memory::class);

@@ -14,7 +14,7 @@ class EventController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = $request->user()->events();
+        $query = $request->user()->events()->with('contact:id,name');
 
         if ($request->boolean('upcoming', true)) {
             $query->upcoming();
@@ -48,7 +48,7 @@ class EventController extends Controller
             'source' => 'manual',
         ]);
 
-        return response()->json(['event' => $event], 201);
+        return response()->json(['event' => $event->load('contact:id,name')], 201);
     }
 
     /**
@@ -58,7 +58,7 @@ class EventController extends Controller
     {
         $this->authorizeOwnership($request, $event);
 
-        return response()->json(['event' => $event]);
+        return response()->json(['event' => $event->load('contact:id,name')]);
     }
 
     /**
@@ -83,7 +83,7 @@ class EventController extends Controller
 
         $event->update($validated);
 
-        return response()->json(['event' => $event]);
+        return response()->json(['event' => $event->load('contact:id,name')]);
     }
 
     /**
